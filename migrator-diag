@@ -1,0 +1,541 @@
+#!/bin/bash
+#
+# My bash example
+#
+
+#Debug the bugs
+set -euo pipefail
+
+#libshell - library of frequently used functions for POSIX shell
+#shell-getopt and shell-terminfo - collection of functions from libshell-packet
+
+. shell-terminfo
+. shell-getopt
+
+#terminfo_init: function initialize library.
+#It determines the size of terminal, the supported escape sequences 
+#and the order of colors
+
+terminfo_init
+
+PROG="migrator-diag"
+VERSION=0.0.1
+verbose=
+listcmd=
+runcmd=run
+logfile=/dev/null
+force=
+global_retval=0
+
+show_usage()
+{
+    echo "Migrator tool"
+    echo ""
+    echo "Usage: $PROG [options] [<check/test-function-name>]"
+    echo ""
+    echo "<check/test-function-name> must be a function name from the list of tests"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help<><------><------>This message"
+    echo "  -V, --version<-----><------><------>Display version number"
+    echo "  -v, --verbose<-----><------><------>Verbose output"
+    echo "  -w, --logfile[=FILE]<------><------>Write verbose output to file"
+    echo "  -f, --force><------><------>Force logging to existing file"
+    echo "  -l, --list<><------><------>List of tests"
+    echo ""
+    exit 0;
+}
+
+print_version()
+{
+    echo "$VERSION"
+    exit 0;
+}
+
+echo $VERSION
+    echo "Usage: $PROG [options] [<check/test-function-name>]"
+
+TEMP=$(getopt -n "$PROG" -o "v,V,w::,f,l,h" -l "verbose,version,logfile::,force,list,help" -- "$@") || show_usage
+eval set -- "$TEMP"
+
+while :; do
+    case "$1" in
+        -h|--help) show_usage
+            ;;
+        -v|--verbose) verbose=1
+            ;;
+        -w|--logfile) shift
+             test -n "$1" && logfile="$1" || logfile="migrator.log"
+            ;;
+        -f|--force) force=1
+            ;;
+        -l|--list) listcmd=1
+            ;;
+        -V|--version) print_version "$PROG"
+            ;;
+        --) shift; break
+            ;;
+        *) fatal "Unrecognized option: $1"
+            ;;
+    esac
+    shift
+done
+
+customcmd="$*"
+
+msg_non_root()
+{
+    echo -n "$*: ["
+    color_text "SKIP" blue
+    echo "]"
+}
+
+msg_fail()
+{
+    echo -n "$*: ["
+    color_text "FAIL" red
+    echo "]"
+}
+
+msg_warn()
+{
+    echo -n "$*: ["
+    color_text "WARN" yellow
+    echo "]"
+}
+
+
+msg_done()
+{
+    echo -n "$*: ["
+    color_text "DONE" green
+    echo "]"
+}
+
+__command_msg()
+{
+    local p='$'
+    if test "$1" = '-r'; then
+        shift
+        p='#'
+    fi
+    color_message "$p $*" bold
+}
+
+_command()
+{
+    local retval=0
+    local x=
+    local q=
+    local r=
+    if test "$1" = '-q'; then
+        shift
+        q=1
+    fi
+    if test "$1" = '-r'; then
+        shift
+        r=1
+    fi
+    if test "$1" = '-x'; then
+        shift
+        x=1
+    fi
+    test -z "$q" && test -z "$r" && __command_msg "$*"
+    test -z "$q" && test -n "$r" && __command_msg -r "$*"
+    test -z "$x" || echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    eval "$*" || retval=$?
+    test -z "$x" || echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    echo
+    return $retval
+}
+
+__header()
+{
+    color_message "===============================================================================" bold white
+}
+
+__footer()
+{
+    color_message "===============================================================================" bold white
+}
+
+__short_msg()
+{
+    case "$1" in
+        0) msg_done  "$2" ;;
+        2) msg_warn  "$2" ;;
+        102) msg_non_root  "$2" ;;
+        *) msg_fail "$2" ;;
+    esac
+}
+
+__delimiter()
+{
+    echo "-------------------------------------------------------------------------------"
+}
+
+__check_title()
+{
+    color_message "$1" bold white
+}
+
+__newline()
+{
+    echo
+}
+
+__log()
+{
+    test -z $verbose && tee -a "$logfile" 1>/dev/null 2>&1 ||
+        tee -a "$logfile"
+}
+
+__log_force_print()
+{
+    tee -a "$logfile"
+}
+
+print_head()
+{
+    __header | __log
+    __check_title "| Migrator environment diagnostic tool |" | __log
+    __delimiter | __log
+    echo "Version: $VERSION" | __log
+    echo "Date: $(date)" | __log
+    __delimiter | __log
+    echo "System information" | __log
+    echo "Kernel: $(uname -r)" | __log
+    echo "Branch: $(apt-repo list | cut -d ' ' -f 2 | grep -e '^\[.*\]$' | tail -1 | sed -E 's/\[(.*)\]/\1/')" | __log
+    __footer | __log
+    __newline | __log
+}
+
+is_root()
+{   
+    if test "$(id -u)" != 0; then
+        return 1
+    fi
+    return 0
+}
+    
+__not_root_skip()
+{   
+    local msg=
+    if test -n "${1+x}" && test "$1" = "-m"; then
+        shift
+        msg="$1"
+    fi
+    echo -n "Running not by root, SKIP: $msg"
+    echo
+    echo 
+}
+
+run()
+{
+    local retval=126
+    local func="$1"
+    local msg
+    msg=$(printf "| %s |" "$func")
+
+    __header | __log
+
+    __check_title "$msg" | __log
+    __delimiter | __log
+    __newline | __log
+
+    $func 2>&1 | __log && retval=0 || retval=$?
+
+    __delimiter | __log
+
+    __short_msg $retval "$2" | __log_force_print
+
+    __footer | __log
+    __newline | __log
+    return $retval
+}
+
+_ldap_get_computer()
+{
+    local retval=0
+    local dc="$1"
+    local computer="$2"
+    local filter=""
+    local domain_dn=
+    if test -n "${3+x}"; then
+        filter="$3"
+    fi
+    domain_dn=$(echo $DOMAIN_DOMAIN | sed 's/\./,dc=/g' | sed 's/^/dc=/')
+#    echo $DOMAIN_DOMAIN "DOMAN_DOMAIN"
+    local searchcmd="ldapsearch -o nettimeout=30 -Y GSSAPI -N -h $dc -b $domain_dn"
+#    echo "search cmd: " $searchcmd 
+    searchcmd="$searchcmd \"(&(ObjectClass=computer)(objectCategory=Computer)(name=$computer))\""
+#    echo "search cmd: " $searchcmd 
+#    echo "computer: " $computer
+    __command_msg "$searchcmd $filter"
+    _command -q "$searchcmd" "$filter" || retval=2
+    return $retval
+}
+
+_ldap_get_nusers()
+{
+    local retval=0
+    local dc="$1"
+    local filter=""
+    local domain_dn=
+    if test -n "${3+x}"; then
+        filter="$3"
+    fi
+    domain_dn=$(echo $DOMAIN_DOMAIN | sed 's/\./,dc=/g' | sed 's/^/dc=/')
+    local searchcmd="ldapsearch -o nettimeout=30 -Y GSSAPI -N -h $dc -b $domain_dn"
+    searchcmd="$searchcmd \"(&(objectCategory=Computer))\"|grep "sAMAccountName" -c"
+    _command -q "$searchcmd" "$filter" || retval=2
+    return $retval
+}
+
+_check_domain_controller()
+{
+    local retval=0
+    local dc="$1"
+    local computer=
+    local ldap_computer=
+    local computer=
+    local hostname_upper=
+    hostname_upper=$(echo $HOSTNAME_SHORT | tr '[:lower:]' '[:upper:]')
+    local domain_upper=
+    domain_upper=$(echo $DOMAIN_DOMAIN | tr '[:lower:]' '[:upper:]')
+    local kinit_realm="$hostname_upper\$\@$domain_upper"
+    if is_root; then
+        KRB5CCNAME="FILE:/tmp/domain-diag_krb5cc_%{uid}"
+        _command kinit -k "$kinit_realm" || retval=2
+        if test "$retval" != "0"; then
+            is_system_auth_local && return 2 || return 1
+        fi
+    fi
+
+    computer="$(echo $1 | sed 's/\..*$//')"
+    _ldap_get_computer "$dc" "$computer" "| grep 'operating\|name:' | cut -d ' ' -f 2 | tr '\n' ' '" || retval=2
+    __newline
+    _command kdestroy -A
+    return $retval
+}
+
+check_domain_controllers()
+{
+    local retval=2
+    local hostcmd="host -t srv _ldap._tcp.$DOMAIN_DOMAIN | cut -d ' ' -f 8"
+    local resolv_msg=
+    local controllers_names=
+    __command_msg "$hostcmd"
+    controllers_names=$(_command -q "$hostcmd" || retval=2)
+    echo $controllers_names | sed 's/ /\n/g'
+    echo
+    for controller_name in $controllers_names; do
+        resolv_msg="host $controller_name | sed 's/^.* //g'"
+        _command "$resolv_msg"
+    done
+    for controller_name in $controllers_names; do
+        # TODO: Add controller check by ip
+        _check_domain_controller $controller_name && retval=0
+    done
+    test -z "$controllers_names" && retval=2
+    ! is_system_auth_local && test $retval != 0 && retval=1
+    return $retval
+}
+
+check_hostnamectl()
+{
+    local retval=0
+    local static_host=
+    local transient_host=
+    transient_host="$(hostname)" || retval=1
+    static_host="$(hostnamectl --static)" || retval=1
+    _command hostnamectl || retval=1
+    test "$static_host" = "$transient_host" || retval=1
+    return $retval
+}
+
+test_hostname()
+{
+    local host="$HOSTNAME_COMMON"
+    echo $host
+    echo
+    test "$host" != "${host/.}" || return 2
+}
+
+_check_usersnumber()
+{
+    local retval=0
+    local dc="$1"
+    local computer=
+    local hostname_upper=
+    hostname_upper=$(echo $HOSTNAME_SHORT | tr '[:lower:]' '[:upper:]')
+    local domain_upper=
+    domain_upper=$(echo $DOMAIN_DOMAIN | tr '[:lower:]' '[:upper:]')
+    local kinit_realm="$hostname_upper\$\@$domain_upper"
+    if is_root; then
+        KRB5CCNAME="FILE:/tmp/domain-diag_krb5cc_%{uid}"
+        _command kinit -k "$kinit_realm" || retval=2
+        if test "$retval" != "0"; then
+            is_system_auth_local && return 2 || return 1
+        fi
+    fi
+
+    _ldap_get_nusers "$dc" || retval=2
+
+     __newline
+    _command kdestroy -A
+    return $retval
+}
+
+check_usersnumber()
+{
+    local retval=2
+    local hostcmd="host -t srv _ldap._tcp.$DOMAIN_DOMAIN | cut -d ' ' -f 8"
+    local controllers_names=
+    controllers_names=$(_command -q "$hostcmd" || retval=2)
+    for controller_name in $controllers_names; do
+        _check_usersnumber $controller_name && retval=0
+    done
+    echo "number:"
+    return $retval
+}
+
+check_antontest()
+{
+    local anton="$PWD"
+    echo $anton
+    echo
+    return 0
+}
+
+check_system_auth()
+{
+    local auth=
+    auth=$(/usr/sbin/control system-auth)
+    _command /usr/sbin/control system-auth
+    _command readlink -f /etc/pam.d/system-auth
+    _command -x cat /etc/pam.d/system-auth
+    test -n "$auth" -a "$auth" != "unknown"
+}
+
+test_domain_system_auth()
+{
+    test -n "$SYSTEM_AUTH" ||
+        SYSTEM_AUTH=local
+    _command /usr/sbin/control system-auth
+    _command test "$SYSTEM_AUTH" != "local" || return 2
+}
+
+is_system_auth_local()
+{
+    test "$SYSTEM_AUTH" = "local"
+}
+
+default_run()
+{
+    local retval=0
+    run "$1" "$2" || retval=$?
+    test $retval = 1 && global_retval=1
+    return 0
+}
+
+list_run()
+{
+    test -z $verbose &&
+        echo "$1" ||
+        echo "$1: $2"
+}
+
+custom_run()
+{
+    if echo "$customcmd"  | tr ' ' '\n' | grep -q "^$1\$"; then
+        run "$1" "$2" && global_retval=0 || global_retval=$?
+    fi
+}
+
+init_log()
+{
+    local log_index
+    if test -e "$logfile" && test "$logfile" != "/dev/null" && test -z "$force"; then
+        log_index=$(find . -maxdepth 1 -name "$logfile.*" 2>/dev/null | sort -V | tail -1 | sed -E 's/^.*\.([^.]*)$/\1/' || true)
+        logfile="$logfile".$(($log_index + 1))
+    fi
+    if test "$logfile" != "/dev/null"; then
+        echo -n > "$logfile"
+    fi
+}
+
+init_vars()
+{
+    local host=
+    host=$(hostname)
+    local domain realm
+    HOSTNAME_COMMON="$host"
+    HOSTNAME_SHORT=$(hostname -s)
+    HOSTNAME_FQDN=$(hostname -f)
+
+    local nameserver_lines=
+    nameserver_lines=$(grep "^nameserver\s\+" /etc/resolv.conf || true)
+    NAMESERVER1=$(echo "$nameserver_lines" | sed -e 's/^nameserver\s\+//' -e 's/\s/\n/' | head -1)
+    NAMESERVER2=$(echo "$nameserver_lines" | sed -e 's/^nameserver\s\+//' -e 's/\s/\n/' | head -2 | tail -1)
+    NAMESERVER3=$(echo "$nameserver_lines" | sed -e 's/^nameserver\s\+//' -e 's/\s/\n/' | head -3 | tail -1)
+
+    SMB_REALM=
+    SMB_NETBIOS_NAME=
+    if which testparm >/dev/null 2>&1; then
+        SMB_REALM=$(testparm -l -v -s 2>/dev/null | grep "^\s*realm\s*=" | sed -e 's/^\s*realm\s*=\s*//' -e 's/\s*$//')
+        SMB_NETBIOS_NAME=$(testparm -l -v -s 2>/dev/null | grep "^\s*netbios name\s*=" | sed -e 's/^\s*netbios name\s*=\s*//' -e 's/\s*$//')
+    fi
+
+    SEARCH_DOMAINS=
+    local search_line=
+    if test -f /etc/resolv.conf; then
+        search_line=$(grep "^search\s\+" /etc/resolv.conf || true)
+        SEARCH_DOMAINS=$(echo $search_line | sed -e 's/^search\s\+//' -e 's/\s\+$//' )
+    fi
+
+    KRB5_DEFAULT_REALM=
+    local krb5_default_realm_line=
+    if test -e /etc/krb5.conf; then
+        krb5_default_realm_line=$(grep "^\s*default_realm\s\+" /etc/krb5.conf || true)
+        KRB5_DEFAULT_REALM=$( echo "$krb5_default_realm_line" | sed -e 's/^\s*default_realm\s*=\s*//' -e 's/\s*$//')
+    fi
+
+    realm=$(echo "$KRB5_DEFAULT_REALM" | tr '[:upper:]' '[:lower:]')
+
+    if test -n "$realm"; then
+        DOMAIN_DOMAIN="$realm"
+    else
+        DOMAIN_DOMAIN=$(echo $SEARCH_DOMAINS | cut -d ' ' -f 1 | tr '[:upper:]' '[:lower:]')
+    fi
+
+    SYSTEM_AUTH="$(/usr/sbin/control system-auth)"
+    SYSTEM_POLICY="$(/usr/sbin/control system-policy)"
+}
+
+if ! test -z $listcmd; then
+    runcmd=list_run
+elif ! test -z "$customcmd"; then
+    runcmd=custom_run
+    global_retval=127
+else
+    runcmd=default_run
+fi
+
+if test -z $listcmd; then
+    echo $listcmd
+    init_log
+    print_head
+    init_vars
+fi
+
+$runcmd check_hostnamectl "Check hostname persistance"
+$runcmd test_hostname "Test hostname is FQDN (not short)"
+$runcmd check_domain_controllers "Check domain controllers list"
+$runcmd check_usersnumber "Check number of domain users"
+#$runcmd check_antontest "Check my test example"
+
+test -f "$logfile" && test -w "$logfile" &&
+        sed -i 's/\x1b\[[0-9;]*[mGKH]//g' $logfile
+
+exit "$global_retval"
