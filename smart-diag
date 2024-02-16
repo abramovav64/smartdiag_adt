@@ -1,0 +1,143 @@
+#!/bin/bash
+# Диагностика диска через smartctl
+#_______________________________________________________________________________
+PROGRAM=${0##*/} # Версия `basename` на bash
+VERSION="$PROGRAM v 0.0.1"
+declare -a SMART_DISK
+REPORT=
+#Отладка ошибок
+set -euo pipefail
+
+#Запуск библиотек с базовым набором функций
+#libshell - library of frequently used functions for POSIX shell
+#shell-getopt and shell-terminfo - collection of functions from libshell-packet
+
+. shell-terminfo
+. shell-getopt
+
+#terminfo_init: function initialize library.
+#It determines the size of terminal, the supported escape sequences 
+#and the order of colors
+
+terminfo_init
+
+# Глобальные переменные и константы
+
+#################################################################################
+# Определения функций
+#--------------------------------------------------------------------------------
+# Функция вывода спровочной информации об использовании
+# Глобальные переменные: PROG
+function Show_Usage
+{
+    echo "Smart disk diagnostic"
+    echo ""
+    echo "Usage: $PROG "
+    echo ""
+    echo ""
+    echo "Options:"
+    echo "  -h				This message"
+    echo "  -V				Display version number"
+    echo "  -s				Display smart-info"
+    echo ""
+    exit 0;
+}
+# Конец функции show_usage
+#--------------------------------------------------------------------------------
+# Функция - информация о пакете smartmontools
+# Глобальные переменные:
+# Входные параметры:
+#
+function Rpm_Info {
+    echo "Информация о пакете smartmontools"
+    echo $(rpm -q smartmontools)
+    return 0
+} # Конец функции rpm_info
+
+#--------------------------------------------------------------------------------
+# Функция - собрать информацию о дисках локального компьютера
+# Глобальные переменные: SMART_DISK
+# Входные параметры:
+#
+function Smart_Info {
+    local smartscan=
+    smartscan=$(smartctl --scan)
+    SMART_DISK=($(smartctl --scan | grep -o '/dev/[^ ,]*'| sort -u))
+} # Конец функции smart_info
+#--------------------------------------------------------------------------------
+# Функция - вывести информацию о дисках локального компьютера
+# Глобальные переменные: SMART_DISK
+# Входные параметры:
+#
+function Smart_Info_Print {
+    echo "Общая информация о дисках компьютера"
+    Smart_Info
+    printf '%s\n' "${SMART_DISK[@]}"
+} # Конец функции smart_info_print
+#--------------------------------------------------------------------------------
+# Функция - проверка на каких дисках включен SMART
+# Глобальные переменные: SMART_DISK, REPORT
+# Входные параметры:
+#
+function Smart_Enable {
+    Smart_Info
+    for i in "${SMART_DISK[@]}"
+    do
+       smartenable=$(smartctl --info $i | grep 'SMART support is:')
+       echo "$i : $smartenable"
+   if [[ $smartenable != *"Enable"* ]]; then
+    REPORT=1
+   else
+    REPORT=0
+   fi
+    done
+    return $REPORT
+} # Конец функции Smart_Enable
+#--------------------------------------------------------------------------------
+# Функция - вывод списка названий функций
+# Глобальные переменные:
+# Входные параметры:
+#
+function List {
+    echo "Smart_Info"
+    echo "Rpm_Info"
+    echo "Smart_Enable"
+} # Конец функции List
+#################################################################################
+
+#--------------------------------------------------------------------------------
+# Обработка ключей через функцию getopt библиотеки libshell
+TEMP=$(getopt -n "$PROG" -o "V,h,s,l" -- "$@") || Show_Usage
+eval set -- "$TEMP"
+
+while :; do
+    case "$1" in
+        -h) Show_Usage
+            ;;
+        -V) echo "$VERSION"
+            ;;
+        -s) Smart_Info
+            ;;
+        -l)
+            List
+            ;;
+        --) shift; break
+            ;;
+        *) fatal "Unrecognized option: $1"
+            ;;
+    esac
+    shift
+done
+
+#--------------------------------------------------------------------------------
+# Обработка аргументов для запуска функций
+if [[ -n $* ]]; then
+    case "$1" in
+     Smart_Info) Smart_Info_Print
+     ;;
+     Rpm_Info) Rpm_Info
+     ;;
+     Smart_Enable) Smart_Enable
+     ;;
+    esac
+fi
