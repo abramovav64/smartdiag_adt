@@ -1,0 +1,24 @@
+[Alterator Entry]
+Type = Backend
+Module = executor
+Name = smart_diag
+Interface = diag1
+
+[Info]
+execute = cat /usr/share/alterator/objects/domain-diag/smart-diag.alterator
+stdout_bytes = enabled
+stdout_byte_limit = 200000
+action_id = Info
+
+[Run]
+execute = /usr/bin/smart-diag {param}
+stdout_signal_name = diag1_stdout_signal
+stderr_signal_name = diag1_stderr_signal
+thread_limit = 3
+action_id = Run
+
+[List]
+execute = /usr/bin/smart-diag -l
+stdout_strings = enabled
+stdout_strings_limit = 200000
+action_id = List

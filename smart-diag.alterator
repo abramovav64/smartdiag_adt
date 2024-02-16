@@ -1,0 +1,32 @@
+[Alterator Entry]
+Type = diag1
+Name = smart_diag
+Name[ru_RU] = Smart диск
+Name[en_US] = Smart disk
+Comment = diag_1 description
+Comment[ru_RU] = Информация о дисках
+Comment[en_US] = Information from disks
+
+[Smart_Info]
+Name = Smart_Info
+Name[ru_RU] = Информация о дисках 
+Name[en_US] = Disk information
+Comment = Smart_Info
+Comment[ru_RU] = Информация о дисках
+Comment[en_US] = Disk information
+
+[Rpm_Info]
+Name = Rpm_Info
+Name[ru_RU] = Информация о rpm-пакете c утилитой smartctl
+Name[en_US] = Rpm_Info
+Comment = Rpm_Info
+Comment[ru_RU] = Информация о rpm-пакете c утилитой smartctl
+Comment[en_US] = Rpm_Info
+
+[Smart_Enable]
+Name = Smart_Enable
+Name[ru_RU] = Проверка включения SMART на диске
+Name[en_US] = Smart_Enable
+Comment = desc check_hostnamectl
+Comment[ru_RU] = Проверка включения SMART на диске
+Comment[en_US] = Smart_Enable

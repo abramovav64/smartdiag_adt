@@ -1,5 +1,5 @@
 #!/bin/bash
-# Диагностика диска через smartctl
+# Диагностика диска через smartctl в обертке Alterator diagnostic tool
 #_______________________________________________________________________________
 PROGRAM=${0##*/} # Версия `basename` на bash
 VERSION="$PROGRAM v 0.0.1"
