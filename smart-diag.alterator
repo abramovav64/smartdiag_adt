@@ -23,10 +23,26 @@ Comment = Rpm_Info
 Comment[ru_RU] = Информация о rpm-пакете c утилитой smartctl
 Comment[en_US] = Rpm_Info
 
-[Smart_Enable]
-Name = Smart_Enable
+[Smart_Enable_Info]
+Name = Smart_Enable_Info
 Name[ru_RU] = Проверка включения SMART на диске
 Name[en_US] = Smart_Enable
-Comment = desc check_hostnamectl
+Comment = check smart enable
 Comment[ru_RU] = Проверка включения SMART на диске
 Comment[en_US] = Smart_Enable
+
+[Smart_Health_Info]
+Name = Smart_Health_Info
+Name[ru_RU] = Проверка здоровья диска
+Name[en_US] = Health check
+Comment = check health
+Comment[ru_RU] = Проверка здоровья диска
+Comment[en_US] = Health check
+
+[Smart_Fail_Info]
+Name = Smart_Fail_Info
+Name[ru_RU] = Проверка ошибки FAIL на диске
+Name[en_US] = Fail check
+Comment = check fail
+Comment[ru_RU] = Проверка ошибки FAIL на диске
+Comment[en_US] = Fail check

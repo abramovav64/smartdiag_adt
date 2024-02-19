@@ -3,8 +3,11 @@
 #_______________________________________________________________________________
 PROGRAM=${0##*/} # Версия `basename` на bash
 VERSION="$PROGRAM v 0.0.1"
-declare -a SMART_DISK
-REPORT=
+declare -a SMART_DISK     #список дисков, обнаруженных SMART
+REPORT=0                  #состояние проверки для передачи ADT: 1 - ошибка, 2 - успешно
+declare -a SMARTE         #глобальная переменная с результатом поддержки SMART на дисках
+declare -a SMARTH         #глобальная переменная с результатом проверки здоровья дисков
+declare -a SMARTF         #глобальная переменная с результатом поиска FAIL в атрибутах проверки
 #Отладка ошибок
 set -euo pipefail
 
@@ -38,7 +41,9 @@ function Show_Usage
     echo "Options:"
     echo "  -h				This message"
     echo "  -V				Display version number"
+    echo "  -v				Display verbose info"
     echo "  -s				Display smart-info"
+    echo "  -l				Display list of check"
     echo ""
     exit 0;
 }
@@ -71,7 +76,6 @@ function Smart_Info {
 #
 function Smart_Info_Print {
     echo "Общая информация о дисках компьютера"
-    Smart_Info
     printf '%s\n' "${SMART_DISK[@]}"
 } # Конец функции smart_info_print
 #--------------------------------------------------------------------------------
@@ -80,19 +84,121 @@ function Smart_Info_Print {
 # Входные параметры:
 #
 function Smart_Enable {
-    Smart_Info
-    for i in "${SMART_DISK[@]}"
-    do
-       smartenable=$(smartctl --info $i | grep 'SMART support is:')
-       echo "$i : $smartenable"
-   if [[ $smartenable != *"Enable"* ]]; then
-    REPORT=1
-   else
-    REPORT=0
-   fi
+    local smartenable=
+    local smartd=
+    for i in "${!SMART_DISK[@]}"; do
+      smartd=${SMART_DISK[$i]}
+      smartenable=$(smartctl --info $smartd | grep 'SMART support is:')
+      if [[ $smartenable != *"Enable"* ]]; then
+        SMARTE[$i]="Disable"
+        REPORT=1
+      else
+        SMARTE[$i]="Enable"
+        REPORT=0
+      fi
+    done
+} # Конец функции Smart_Enable
+#--------------------------------------------------------------------------------
+# Функция - вывести информацию о поддержке SMART на дисках
+# Глобальные переменные: SMART_DISK, SMARTE
+# Входные параметры:
+#
+function Smart_Enable_Print {
+    local status="работает"
+    echo "Поддержка SMART на дисках"
+    for index in "${!SMART_DISK[@]}"; do
+        [[ ${SMARTE[$index]} = "Disable" ]] && status="не работает"
+        printf '%s\n' "У диска ${SMART_DISK[$index]} $status SMART: ${SMARTE[$index]}"
+        status="работает"
     done
     return $REPORT
-} # Конец функции Smart_Enable
+} # Конец функции smart_enable_print
+#--------------------------------------------------------------------------------
+# Функция - проверка здоровья на дисках - health status
+# Глобальные переменные: SMART_DISK, REPORT, SMARTE, SMARTH
+# Входные параметры:
+#
+function Smart_Health {
+    local smarthealth=
+    local smartd=
+    local smarte=
+    for i in "${!SMART_DISK[@]}"; do
+      smartd=${SMART_DISK[$i]}
+      smarte=${SMARTE[$i]}
+      if [[ "$smarte" = "Enable" ]]; then
+        smarthealth=$(smartctl -H $smartd | grep 'test result:')
+        if [[ $smarthealth != *"PASSED"* ]]; then
+          SMARTH[$i]="WRONG"
+          REPORT=1
+        else
+          SMARTH[$i]="PASSED"
+          REPORT=0
+        fi
+      else
+        SMARTH[$i]="UNPASSED"
+      fi
+    done
+} # Конец функции Smart_Health
+#--------------------------------------------------------------------------------
+# Функция - вывод информации проверки здоровья на дисках - health status
+# Глобальные переменные: SMART_DISK, REPORT, SMARTE, SMARTH
+# Входные параметры:
+#
+function Smart_Health_Print {
+    local status="не прошел"
+    echo "Быстрая проверка здоровья дисков"
+    [[ SMARTE == 0 ]] && echo "SMART support unavailable"
+    for index in "${!SMART_DISK[@]}"; do
+        [[ ${SMARTH[$index]} = "PASSED" ]] && status="прошел"
+        printf '%s\n' "Диск ${SMART_DISK[$index]} $status проверку health status: ${SMARTH[$index]}"
+        [[ ${SMARTE[$index]} = "Disable" ]] && echo "На диске выключена SMART-диагностика"
+        status="не прошел"
+    done
+    return $REPORT
+} # Конец функции Smart_Health
+#--------------------------------------------------------------------------------
+# Функция - проверка атрибутов диска и поиск значения "FAIL"
+# Глобальные переменные: SMART_DISK, REPORT, SMARTE, SMARTF
+# Входные параметры:
+#
+function Smart_Fail {
+    local smartfail=
+    local smartd=
+    local smarte=
+    for i in "${!SMART_DISK[@]}"; do
+      smartd=${SMART_DISK[$i]}
+      smarte=${SMARTE[$i]}
+      if [[ "$smarte" = "Enable" ]]; then
+        smartfail=$(smartctl -A $smartd | grep 'Always ')
+        if [[ $smartfail != *"Always"* ]]; then
+          SMARTF[$i]="Alarm"
+          REPORT=1
+        else
+          SMARTF[$i]="Well"
+          REPORT=0
+        fi
+      else
+        SMARTF[$i]="UNPASSED"
+      fi
+    done
+} # Конец функции Smart_Fail
+#--------------------------------------------------------------------------------
+# Функция - вывод информации проверки атрибутов диска со значением FAIL
+# Глобальные переменные: SMART_DISK, REPORT, SMARTF, SMARTE
+# Входные параметры:
+#
+function Smart_Fail_Print {
+    local status="обнаружена"
+    echo "Поиск значения FAIL в атрибутах состояния дисков"
+    for index in "${!SMART_DISK[@]}"; do
+        [[ ${SMARTF[$index]} = "Well" ]] && status="не обнаружена"
+        [[ ${SMARTF[$index]} = "UNPASSED" ]] && status="не обнаружена"
+        printf '%s\n' "На диске ${SMART_DISK[$index]} $status ошибка FAIL: ${SMARTF[$index]}"
+        [[ ${SMARTE[$index]} = "Disable" ]] && echo "На диске выключена SMART-диагностика"
+        status="обнаружена"
+    done
+    return $REPORT
+} # Конец функции Smart_Health
 #--------------------------------------------------------------------------------
 # Функция - вывод списка названий функций
 # Глобальные переменные:
@@ -101,13 +207,18 @@ function Smart_Enable {
 function List {
     echo "Smart_Info"
     echo "Rpm_Info"
-    echo "Smart_Enable"
+    echo "Smart_Enable_Info"
+    echo "Smart_Health_Info"
+    echo "Smart_Fail_Info"
 } # Конец функции List
 #################################################################################
-
+Smart_Info    #получить информацию о дисках от smartctl
+Smart_Enable  #получить информацию о поддержке smart
+Smart_Health  #получить информацию о проверке здоровья
+Smart_Fail    #получить информацию о поиске атрибута FAIL
 #--------------------------------------------------------------------------------
 # Обработка ключей через функцию getopt библиотеки libshell
-TEMP=$(getopt -n "$PROG" -o "V,h,s,l" -- "$@") || Show_Usage
+TEMP=$(getopt -n "$PROG" -o "V,h,s,l,v" -- "$@") || Show_Usage
 eval set -- "$TEMP"
 
 while :; do
@@ -116,7 +227,12 @@ while :; do
             ;;
         -V) echo "$VERSION"
             ;;
-        -s) Smart_Info
+        -v) Smart_Info_Print
+            Smart_Enable_Print
+            Smart_Health_Print
+            Smart_Fail_Print
+            ;;
+        -s) Smart_Info_Print
             ;;
         -l)
             List
@@ -137,7 +253,11 @@ if [[ -n $* ]]; then
      ;;
      Rpm_Info) Rpm_Info
      ;;
-     Smart_Enable) Smart_Enable
+     Smart_Enable_Info) Smart_Enable_Print
+     ;;
+     Smart_Health_Info) Smart_Health_Print
+     ;;
+     Smart_Fail_Info) Smart_Fail_Print
      ;;
     esac
 fi
